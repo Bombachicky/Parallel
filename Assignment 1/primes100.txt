@@ -1,0 +1,4 @@
+Number of Primes: 25
+Sum of All Prime Numbers: 1060
+Top Ten Max Prime Numbers: [97, 89, 83, 79, 73, 71, 67, 61, 59, 53]
+Execution Time: 7 ms
