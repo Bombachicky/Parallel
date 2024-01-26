@@ -1,0 +1,4 @@
+Number of Primes: 4
+Sum of All Prime Numbers: 17
+Top Ten Max Prime Numbers: [7, 5, 3, 2]
+Execution Time: 6 ms
