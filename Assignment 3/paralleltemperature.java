@@ -1,120 +1,122 @@
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.*;
 import java.util.stream.*;
 
 public class paralleltemperature {
-    // Constants based on assignments and concurrent list to represent data.
+    // Variables used to store data and constants based on assignment
     private static final int SENSOR_QUANTITY = 8;
     private static final int TIME_SLICES = 60;
     private static final int DURATION_HOURS = 72;
-    private ExecutorService climateSensors = Executors.newFixedThreadPool(SENSOR_QUANTITY);
     private List<Integer> climateData = Collections.synchronizedList(new ArrayList<>(Collections.nCopies(SENSOR_QUANTITY * TIME_SLICES, 0)));
     private AtomicBoolean[] operationalSensors = new AtomicBoolean[SENSOR_QUANTITY];
 
+    // set all sensors operational
     public paralleltemperature() {
-        for (int i = 0; i < SENSOR_QUANTITY; i++) {
-            operationalSensors[i] = new AtomicBoolean(true);
-        }
+        Arrays.setAll(operationalSensors, i -> new AtomicBoolean(true));
     }
 
-    // If a sensor is not operational and is not the snsor we are searching for, we return false
-    private boolean checkSensorStatus(int sensorID) {
-        for (int i = 0; i < operationalSensors.length; i++) {
-            if (!operationalSensors[i].get() && i != sensorID) {
-                return false;
-            }
-        }
-        return true;
+    // check if all sensors are active excluding the excludingSensor
+    private boolean areSensorsOperational(int excludingSensor) {
+        return IntStream.range(0, SENSOR_QUANTITY)
+                        .filter(i -> i != excludingSensor)
+                        .allMatch(i -> operationalSensors[i].get());
     }
 
-    // Reads in all the data at a specific time point based on the thread.
-    private void captureReadings(int sensorID) {
-        for (int hr = 0; hr < DURATION_HOURS; hr++) {
-            for (int min = 0; min < TIME_SLICES; min++) {
+    // Add all temperatures recorded to the list based on current thread running.
+    private void recordTemperatureData(int sensorID) {
+        IntStream.range(0, DURATION_HOURS).forEach(hour -> {
+            IntStream.range(0, TIME_SLICES).forEach(minute -> {
+                // sensor is false while adding the data
                 operationalSensors[sensorID].set(false);
-                climateData.set(min + (sensorID * TIME_SLICES), ThreadLocalRandom.current().nextInt(-100, 71));
+                int readingIndex = sensorID * TIME_SLICES + minute;
+                climateData.set(readingIndex, generateRandomNumber(-100, 70));
                 operationalSensors[sensorID].set(true);
 
-                while (!checkSensorStatus(sensorID)) {
+                while (!areSensorsOperational(sensorID)) {
                     try {
                         Thread.sleep(10);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }
                 }
-            }
-
-            if (sensorID == 0) {
-                synchronized (this) {
-                    compileReport(hr);
+            });
+            synchronized (this) {
+                if (sensorID == 0) {
+                    generateHourlyReport(hour);
                 }
             }
-        }
+        });
     }
 
-    // prints out hourly report
-    private void compileReport(int hourMark) {
-        System.out.println("[Report for Hour " + (hourMark + 1) + "]");
-        findTemperatureFluctuations();
-        showTemperatureExtremes(true);  // For highest temperatures
-        showTemperatureExtremes(false); // For lowest temperatures
+    private void generateHourlyReport(int hour) {
+        System.out.println("[Hour " + (hour + 1) + " Report]");
+        printLargestDifference();
+        printTemperatureExtremes(true); // For highest temperatures
+        printTemperatureExtremes(false); // For lowest temperatures
+        System.out.println();
     }
 
-    // Finds difference between highest and lowest temperature and times.
-    private void findTemperatureFluctuations() {
-        int greatestFluctuation = Integer.MIN_VALUE, startMinute = 0;
-        int interval = ThreadLocalRandom.current().nextInt(5, 16);
+    // find larget difference per hour and print them.
+    private void printLargestDifference() {
+        int maxDifference = Integer.MIN_VALUE;
+        int startMinute = 0;
+        int interval = 10;
 
-        synchronized (climateData) {
-            for (int i = 0; i < climateData.size() - interval; i++) {
-                int high = Collections.max(climateData.subList(i, i + interval));
-                int low = Collections.min(climateData.subList(i, i + interval));
-                int difference = high - low;
+        for (int i = 0; i <= TIME_SLICES - interval; i++) {
+            List<Integer> sublist = new ArrayList<>(climateData.subList(i, i + interval));
+            int max = Collections.max(sublist);
+            int min = Collections.min(sublist);
+            int diff = max - min;
 
-                if (difference > greatestFluctuation) {
-                    greatestFluctuation = difference;
-                    startMinute = i;
-                }
+            if (diff > maxDifference) {
+                maxDifference = diff;
+                startMinute = i;
             }
         }
 
-        System.out.println("Max Temp Change: " + greatestFluctuation + "F from minute " + startMinute + " to " + (startMinute + interval));
+        System.out.println("Largest temperature difference: " + maxDifference + "F"
+                + " starting at minute " + startMinute
+                + " and ending at minute " + (startMinute + interval));
     }
 
-    // Finds highest and lowest temperatures in list
-    private void showTemperatureExtremes(boolean isMax) {
-        List<Integer> sortedData;
-        synchronized (climateData) {
-            sortedData = new ArrayList<>(climateData);
+    // Print highest and lowest temperatures.
+    private void printTemperatureExtremes(boolean highest) {
+        List<Integer> sortedTemperatures = new ArrayList<>(climateData);
+        Collections.sort(sortedTemperatures);
+        if (!highest) {
+            Collections.reverse(sortedTemperatures);
         }
-        sortedData.sort(null);
 
-        List<Integer> extremes = isMax ? sortedData.subList(sortedData.size() - 5, sortedData.size()) : sortedData.subList(0, 5);
+        List<Integer> extremes = sortedTemperatures.stream().distinct().limit(5).collect(Collectors.toList());
 
-        System.out.print(isMax ? "Peak Temperatures: " : "Minimum Temperatures: ");
+        System.out.print(highest ? "Highest temperatures: " : "Lowest temperatures: ");
         extremes.forEach(temp -> System.out.print(temp + "F "));
         System.out.println();
     }
 
-    // starts process of assignment
-    public void initiate() {
-        IntStream.range(0, SENSOR_QUANTITY).forEach(i ->
-            climateSensors.submit(() -> captureReadings(i))
-        );
+    public void start() {
+        Thread[] sensorThreads = new Thread[SENSOR_QUANTITY];
+        IntStream.range(0, SENSOR_QUANTITY).forEach(i -> {
+            sensorThreads[i] = new Thread(() -> recordTemperatureData(i));
+            sensorThreads[i].start();
+        });
 
-        climateSensors.shutdown();
-        try {
-            if (!climateSensors.awaitTermination(DURATION_HOURS, TimeUnit.HOURS)) {
-                climateSensors.shutdownNow();
+        Arrays.stream(sensorThreads).forEach(t -> {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
-        } catch (InterruptedException e) {
-            climateSensors.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+        });
+    }
+
+    public static int generateRandomNumber(int min, int max) {
+        return ThreadLocalRandom.current().nextInt(min, max + 1);
     }
 
     public static void main(String[] args) {
-        new paralleltemperature().initiate();
+        new paralleltemperature().start();
     }
 }
+
